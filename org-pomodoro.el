@@ -1,9 +1,10 @@
 ;;; org-pomodoro.el --- Pomodoro implementation for org-mode.
 
 ;; Author: Arthur Leonard Andersen <leoc.git@gmail.com>, Marcin Koziej <marcin at lolownia dot org>
-;; URL: https://github.com/lolownia/org-pomodoro
+;; Maintainer: Aayush Bajaj <aayushbajaj7@gmail.com>
+;; URL: https://github.com/abaj8494/org-pomodoro
 ;; Created: May 10, 2013
-;; Version: 2.1.0
+;; Version: 3.0.0
 ;; Package-Requires: ((alert "0.5.10") (cl-lib "0.5"))
 
 ;; This file is free software; you can redistribute it and/or modify
@@ -31,6 +32,13 @@
 ;;
 ;; For a full explanation of the pomodoro technique, have a look at:
 ;;   http://www.pomodorotechnique.com
+;;
+;; Version 3.0.0 changes (abaj8494 fork):
+;; - C-u prefix argument support for custom work/break lengths
+;;   - C-u: prompt for work length
+;;   - C-u C-u: prompt for work and break lengths
+;; - Strict single-timer enforcement (no multiple simultaneous timers)
+;; - Improved user feedback
 
 ;;; Code:
 (eval-when-compile
@@ -69,7 +77,7 @@
   "Whether the user needs to exit manually from a running pomodoro to enter a break.
 
 If non-nil, after the time is up for a pomodoro, an \"overtime\"
-state is entered until ‘org-pomodoro’ is invoked, which then
+state is entered until 'org-pomodoro' is invoked, which then
 finishes the pomodoro and enters the break period."
   :group 'org-pomodoro
   :type 'boolean)
@@ -357,6 +365,19 @@ or :break when starting a break.")
 (defvar org-pomodoro-last-clock-in nil
   "The last time the pomodoro was set.")
 
+;; Session-override variables (for C-u custom lengths)
+(defvar org-pomodoro--current-length nil
+  "Override length for the current pomodoro session.
+When non-nil, used instead of `org-pomodoro-length'.")
+
+(defvar org-pomodoro--current-short-break-length nil
+  "Override short break length for the current session.
+When non-nil, used instead of `org-pomodoro-short-break-length'.")
+
+(defvar org-pomodoro--current-long-break-length nil
+  "Override long break length for the current session.
+When non-nil, used instead of `org-pomodoro-long-break-length'.")
+
 ;;; Internal
 
 ;; Helper Functions
@@ -442,6 +463,24 @@ org-pomodoro-time-format."
                       (- (org-pomodoro-remaining-seconds))
                     (org-pomodoro-remaining-seconds))))
 
+(defun org-pomodoro--effective-length ()
+  "Return the effective pomodoro length (override or default)."
+  (or org-pomodoro--current-length org-pomodoro-length))
+
+(defun org-pomodoro--effective-short-break-length ()
+  "Return the effective short break length (override or default)."
+  (or org-pomodoro--current-short-break-length org-pomodoro-short-break-length))
+
+(defun org-pomodoro--effective-long-break-length ()
+  "Return the effective long break length (override or default)."
+  (or org-pomodoro--current-long-break-length org-pomodoro-long-break-length))
+
+(defun org-pomodoro--clear-overrides ()
+  "Clear all session-specific length overrides."
+  (setq org-pomodoro--current-length nil
+        org-pomodoro--current-short-break-length nil
+        org-pomodoro--current-long-break-length nil))
+
 (defun org-pomodoro-update-mode-line ()
   "Set the modeline accordingly to the current state."
   (let ((s (cl-case org-pomodoro-state
@@ -495,10 +534,10 @@ invokes the handlers for finishing."
   (setq org-pomodoro-state state
         org-pomodoro-end-time
         (cl-case state
-          (:pomodoro (time-add (current-time) (* 60 org-pomodoro-length)))
+          (:pomodoro (time-add (current-time) (* 60 (org-pomodoro--effective-length))))
           (:overtime (current-time))
-          (:short-break (time-add (current-time) (* 60 org-pomodoro-short-break-length)))
-          (:long-break (time-add (current-time) (* 60 org-pomodoro-long-break-length))))
+          (:short-break (time-add (current-time) (* 60 (org-pomodoro--effective-short-break-length))))
+          (:long-break (time-add (current-time) (* 60 (org-pomodoro--effective-long-break-length)))))
         org-pomodoro-timer (run-with-timer t 1 'org-pomodoro-tick)))
 
 (defun org-pomodoro-start (&optional state)
@@ -526,6 +565,8 @@ The argument STATE is optional.  The default state is `:pomodoro`."
     (cancel-timer org-pomodoro-timer))
   (setq org-pomodoro-state :none
         org-pomodoro-end-time nil)
+  ;; Clear session overrides when resetting
+  (org-pomodoro--clear-overrides)
   (org-pomodoro-update-mode-line)
   (org-agenda-maybe-redo))
 
@@ -537,9 +578,9 @@ The argument STATE is optional.  The default state is `:pomodoro`."
 
 (defun org-pomodoro-overtime ()
   "Is invoked when the time for a pomodoro runs out.
-Notify the user that the pomodoro should be finished by calling ‘org-pomodoro’"
+Notify the user that the pomodoro should be finished by calling 'org-pomodoro'"
   (org-pomodoro-maybe-play-sound :overtime)
-  (org-pomodoro-notify "Pomodoro completed. Now on overtime!" "Start break by calling ‘org-pomodoro’")
+  (org-pomodoro-notify "Pomodoro completed. Now on overtime!" "Start break by calling 'org-pomodoro'")
   (org-pomodoro-start :overtime)
   (org-pomodoro-update-mode-line)
   (run-hooks 'org-pomodoro-overtime-hook))
@@ -608,13 +649,51 @@ This may send a notification and play a sound."
            (cons (copy-marker (match-end 1) t)
                  (org-time-string-to-time (match-string 1)))))))))
 
+(defun org-pomodoro--read-duration (prompt default)
+  "Read a duration in minutes from the user.
+PROMPT is the prompt string, DEFAULT is shown as the default value."
+  (let ((input (read-string (format "%s (default %d): " prompt default)
+                            nil nil (number-to-string default))))
+    (if (string-empty-p input)
+        default
+      (let ((num (string-to-number input)))
+        (if (> num 0)
+            num
+          (user-error "Duration must be a positive number"))))))
+
+(defun org-pomodoro--prompt-custom-lengths (arg)
+  "Prompt user for custom lengths based on prefix ARG.
+C-u (4): prompt for work length only.
+C-u C-u (16): prompt for work and break lengths."
+  (when arg
+    (cond
+     ((equal arg '(4))
+      ;; C-u: prompt for work length
+      (setq org-pomodoro--current-length
+            (org-pomodoro--read-duration "Pomodoro length (minutes)" org-pomodoro-length)))
+     ((equal arg '(16))
+      ;; C-u C-u: prompt for work and break lengths
+      (setq org-pomodoro--current-length
+            (org-pomodoro--read-duration "Pomodoro length (minutes)" org-pomodoro-length))
+      (setq org-pomodoro--current-short-break-length
+            (org-pomodoro--read-duration "Short break length (minutes)" org-pomodoro-short-break-length))
+      (setq org-pomodoro--current-long-break-length
+            (org-pomodoro--read-duration "Long break length (minutes)" org-pomodoro-long-break-length))))))
+
 ;;;###autoload
 (defun org-pomodoro (&optional arg)
   "Start a new pomodoro or stop the current one.
 
 When no timer is running for `org-pomodoro` a new pomodoro is started and
 the current task is clocked in.  Otherwise EMACS will ask whether we´d like to
-kill the current timer, this may be a break or a running pomodoro."
+kill the current timer, this may be a break or a running pomodoro.
+
+With prefix argument:
+  C-u: Prompt for custom pomodoro length.
+  C-u C-u: Prompt for custom pomodoro and break lengths.
+
+Note: Only one timer can run at a time. Starting a new pomodoro
+while one is active will prompt to kill the current one first."
   (interactive "P")
 
   (when (and org-pomodoro-last-clock-in
@@ -628,20 +707,33 @@ kill the current timer, this may be a break or a running pomodoro."
    ;; possibly break from overtime
    ((and (org-pomodoro-active-p) (eq org-pomodoro-state :overtime))
     (org-pomodoro-finished))
-   ;; Maybe kill running pomodoro
+   ;; Strictly prevent multiple timers - must kill existing one first
    ((org-pomodoro-active-p)
-    (if (or (not org-pomodoro-ask-upon-killing)
-            (y-or-n-p "There is already a running timer.  Would you like to stop it? "))
-        (org-pomodoro-kill)
-      (message "Alright, keep up the good work!")))
-   ;; or start and clock in pomodoro
+    (let ((state-name (cl-case org-pomodoro-state
+                        (:pomodoro "pomodoro")
+                        (:short-break "short break")
+                        (:long-break "long break")
+                        (t "timer"))))
+      (if (or (not org-pomodoro-ask-upon-killing)
+              (y-or-n-p (format "A %s is already running (%s remaining). Kill it? "
+                                state-name
+                                (org-pomodoro-format-seconds))))
+          (org-pomodoro-kill)
+        (message "Timer continues. Use `org-pomodoro' again to manage it."))))
+   ;; Start a new pomodoro
    (t
+    ;; Prompt for custom lengths if prefix argument given
+    (org-pomodoro--prompt-custom-lengths arg)
+    ;; Show what settings we're using
+    (when (or org-pomodoro--current-length
+              org-pomodoro--current-short-break-length
+              org-pomodoro--current-long-break-length)
+      (message "Starting pomodoro: %d min work, %d min short break, %d min long break"
+               (org-pomodoro--effective-length)
+               (org-pomodoro--effective-short-break-length)
+               (org-pomodoro--effective-long-break-length)))
+    ;; Clock in based on context
     (cond
-     ((equal arg '(4))
-      (let ((current-prefix-arg '(4)))
-        (call-interactively 'org-clock-in)))
-     ((equal arg '(16))
-      (call-interactively 'org-clock-in-last))
      ((memq major-mode (list 'org-mode 'org-journal-mode))
       (call-interactively 'org-clock-in))
      ((eq major-mode 'org-agenda-mode)
@@ -650,6 +742,21 @@ kill the current timer, this may be a break or a running pomodoro."
      (t (let ((current-prefix-arg '(4)))
           (call-interactively 'org-clock-in))))
     (org-pomodoro-start :pomodoro))))
+
+;;;###autoload
+(defun org-pomodoro-status ()
+  "Display the current pomodoro status."
+  (interactive)
+  (if (org-pomodoro-active-p)
+      (let ((state-name (cl-case org-pomodoro-state
+                          (:pomodoro "Pomodoro")
+                          (:overtime "Overtime")
+                          (:short-break "Short break")
+                          (:long-break "Long break")))
+            (remaining (org-pomodoro-format-seconds)))
+        (message "%s: %s remaining (count: %d)"
+                 state-name remaining org-pomodoro-count))
+    (message "No active pomodoro (count: %d)" org-pomodoro-count)))
 
 (provide 'org-pomodoro)
 
