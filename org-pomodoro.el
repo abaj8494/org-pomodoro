@@ -924,7 +924,7 @@ If multiple timers are active, prompts to select which one."
              (instance (cdr (assoc selected choices))))
         (if (org-pomodoro--instance-paused-p instance)
             (org-pomodoro--resume-instance instance)
-          (org-pomodoro--pause-instance instance))))))
+          (org-pomodoro--pause-instance instance)))))))
 
 (defun org-pomodoro-reset ()
   "Reset org-pomodoro state (kills all active pomodoros)."
