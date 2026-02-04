@@ -817,17 +817,21 @@ PROMPT is the prompt string, DEFAULT is shown as the default value."
 
 (defun org-pomodoro--prompt-custom-lengths (arg)
   "Prompt user for custom lengths based on prefix ARG.
+C-u N (numeric): use N as work length directly.
 C-u (4): prompt for work length only.
 C-u C-u (16): prompt for work and break lengths.
 Returns a plist of (:length L :short-break S :long-break L) or nil."
   (when arg
     (cond
+     ;; C-u 50 -> arg is 50 (a number)
+     ((and (numberp arg) (> arg 0))
+      (list :length arg))
+     ;; C-u -> arg is '(4)
      ((equal arg '(4))
-      ;; C-u: prompt for work length
       (list :length (org-pomodoro--read-duration "Pomodoro length (minutes)"
                                                   org-pomodoro-length)))
+     ;; C-u C-u -> arg is '(16)
      ((equal arg '(16))
-      ;; C-u C-u: prompt for work and break lengths
       (list :length (org-pomodoro--read-duration "Pomodoro length (minutes)"
                                                   org-pomodoro-length)
             :short-break (org-pomodoro--read-duration "Short break length (minutes)"
