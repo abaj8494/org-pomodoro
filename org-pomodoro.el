@@ -362,14 +362,17 @@ Hook functions receive the pomodoro instance as an argument.")
   "List of active pomodoro instances.
 Each instance is a plist with:
   :name - user-given name
-  :state - :pomodoro, :short-break, :long-break, :overtime, :none
+  :state - :pomodoro, :short-break, :long-break, :overtime, :paused, :none
   :timer - the timer object
   :end-time - when this phase ends
   :count - number of completed pomodoros for this instance
   :length - pomodoro length for this instance
   :short-break-length - short break length
   :long-break-length - long break length
-  :last-clock-in - last clock-in time")
+  :last-clock-in - last clock-in time
+  :start-time - when this pomodoro session started (for logging)
+  :remaining-seconds - seconds remaining when paused
+  :paused-state - the state before pausing (to restore on resume)")
 
 ;; Legacy variables for backwards compatibility
 (defvar org-pomodoro-timer nil
@@ -412,7 +415,10 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
         :length (or length org-pomodoro-length)
         :short-break-length (or short-break org-pomodoro-short-break-length)
         :long-break-length (or long-break org-pomodoro-long-break-length)
-        :last-clock-in nil))
+        :last-clock-in nil
+        :start-time nil
+        :remaining-seconds nil
+        :paused-state nil))
 
 (defun org-pomodoro--get-instance (name)
   "Get the pomodoro instance with NAME, or nil if not found."
@@ -421,8 +427,18 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
               org-pomodoro--instances))
 
 (defun org-pomodoro--instance-active-p (instance)
-  "Return t if INSTANCE is active (not :none state)."
+  "Return t if INSTANCE is active (not :none state).
+Paused instances are considered active."
   (not (eq (plist-get instance :state) :none)))
+
+(defun org-pomodoro--instance-paused-p (instance)
+  "Return t if INSTANCE is paused."
+  (eq (plist-get instance :state) :paused))
+
+(defun org-pomodoro--instance-running-p (instance)
+  "Return t if INSTANCE is actively running (not paused or none)."
+  (and (org-pomodoro--instance-active-p instance)
+       (not (org-pomodoro--instance-paused-p instance))))
 
 (defun org-pomodoro--any-active-p ()
   "Return t if any pomodoro instance is active."
@@ -434,9 +450,23 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
 
 (defun org-pomodoro--instance-remaining-seconds (instance)
   "Return remaining seconds for INSTANCE."
-  (let ((end-time (plist-get instance :end-time)))
-    (if end-time
-        (float-time (time-subtract end-time (current-time)))
+  (let ((state (plist-get instance :state)))
+    (if (eq state :paused)
+        ;; When paused, use stored remaining seconds
+        (or (plist-get instance :remaining-seconds) 0)
+      ;; When running, calculate from end-time
+      (let ((end-time (plist-get instance :end-time)))
+        (if end-time
+            (float-time (time-subtract end-time (current-time)))
+          0)))))
+
+(defun org-pomodoro--instance-elapsed-seconds (instance)
+  "Return elapsed seconds for INSTANCE since it started."
+  (let ((start-time (plist-get instance :start-time))
+        (length (plist-get instance :length)))
+    (if start-time
+        (let ((remaining (org-pomodoro--instance-remaining-seconds instance)))
+          (- (* 60 length) remaining))
       0)))
 
 (defun org-pomodoro--instance-format-time (instance)
@@ -446,7 +476,7 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
     (format-seconds org-pomodoro-time-format
                     (if (eq state :overtime)
                         (- remaining)
-                      remaining))))
+                      (max 0 remaining)))))
 
 ;; Helper Functions
 
@@ -513,6 +543,11 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
   (when (org-pomodoro-sound-p type)
     (org-pomodoro-play-sound type)))
 
+(defface org-pomodoro-mode-line-paused
+  '((t (:foreground "gray60" :slant italic)))
+  "Face of a paused pomodoro in the modeline."
+  :group 'faces)
+
 (defun org-pomodoro-update-mode-line ()
   "Set the modeline accordingly to the current state."
   (let ((parts '()))
@@ -535,7 +570,10 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
                                'face 'org-pomodoro-mode-line-break))
                   (:long-break
                    (propertize (format "%s··%s" display-name time-str)
-                               'face 'org-pomodoro-mode-line-break)))))
+                               'face 'org-pomodoro-mode-line-break))
+                  (:paused
+                   (propertize (format "%s⏸%s" display-name time-str)
+                               'face 'org-pomodoro-mode-line-paused)))))
         (when s (push s parts))))
     (setq org-pomodoro-mode-line
           (if parts
@@ -549,7 +587,8 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
   "Handle tick for a single INSTANCE."
   (let ((state (plist-get instance :state))
         (name (plist-get instance :name)))
-    (when (org-pomodoro--instance-active-p instance)
+    ;; Skip paused instances
+    (when (org-pomodoro--instance-running-p instance)
       (when (< (org-pomodoro--instance-remaining-seconds instance) 0)
         (cl-case state
           (:pomodoro (if org-pomodoro-manual-break
@@ -620,6 +659,9 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
     ;; Set state
     (org-pomodoro--set-instance-state instance target-state)
     (plist-put instance :last-clock-in (current-time))
+    ;; Record start time for elapsed time tracking
+    (when (eq target-state :pomodoro)
+      (plist-put instance :start-time (current-time)))
     ;; Ensure global timer is running
     (org-pomodoro--ensure-global-timer)
     ;; Log and notify
@@ -687,27 +729,96 @@ Optional LENGTH, SHORT-BREAK, LONG-BREAK override defaults."
     (org-pomodoro-update-mode-line)
     (org-agenda-maybe-redo)))
 
+(defun org-pomodoro--format-duration (seconds)
+  "Format SECONDS as a human-readable duration string."
+  (let* ((mins (floor (/ seconds 60)))
+         (secs (floor (mod seconds 60))))
+    (if (> mins 0)
+        (format "%d min %d sec" mins secs)
+      (format "%d sec" secs))))
+
+(defun org-pomodoro--log-to-logbook (instance)
+  "Log elapsed pomodoro time to the current org heading's LOGBOOK."
+  (let* ((name (plist-get instance :name))
+         (elapsed (org-pomodoro--instance-elapsed-seconds instance))
+         (length (plist-get instance :length))
+         (elapsed-str (org-pomodoro--format-duration elapsed))
+         (timestamp (format-time-string "[%Y-%m-%d %a %H:%M]")))
+    (when (and (> elapsed 0) (org-clocking-p))
+      (save-excursion
+        (org-clock-goto)
+        (org-end-of-meta-data t)
+        ;; Find or create LOGBOOK drawer
+        (if (looking-at "^[ \t]*:LOGBOOK:")
+            (progn
+              (forward-line 1)
+              (insert (format "- Pomodoro \"%s\" killed after %s (of %d min)  %s\n"
+                              name elapsed-str length timestamp)))
+          ;; No LOGBOOK, create one
+          (insert ":LOGBOOK:\n")
+          (insert (format "- Pomodoro \"%s\" killed after %s (of %d min)  %s\n"
+                          name elapsed-str length timestamp))
+          (insert ":END:\n"))))))
+
 (defun org-pomodoro--kill-instance (instance)
-  "Kill INSTANCE."
-  (let ((name (plist-get instance :name))
-        (state (plist-get instance :state)))
-    (org-pomodoro--log "KILLED '%s' - %s was terminated"
+  "Kill INSTANCE and log progress to LOGBOOK."
+  (let* ((name (plist-get instance :name))
+         (state (plist-get instance :state))
+         (elapsed (org-pomodoro--instance-elapsed-seconds instance))
+         (elapsed-str (org-pomodoro--format-duration elapsed)))
+    (org-pomodoro--log "KILLED '%s' - %s was terminated after %s"
                        name
                        (cl-case state
                          (:pomodoro "pomodoro")
+                         (:paused "paused pomodoro")
                          (:short-break "short break")
                          (:long-break "long break")
                          (:overtime "overtime")
-                         (t "timer")))
+                         (t "timer"))
+                       elapsed-str)
+    ;; Log to LOGBOOK before removing instance
+    (when (memq state '(:pomodoro :paused :overtime))
+      (org-pomodoro--log-to-logbook instance))
     (org-pomodoro--remove-instance instance)
     (org-pomodoro-notify (format "Pomodoro '%s' killed." name)
-                         "One does not simply kill a pomodoro!")
+                         (format "Logged %s of progress." elapsed-str))
     (org-pomodoro-maybe-play-sound :killed)
     (when (org-clocking-p)
       (if org-pomodoro-keep-killed-pomodoro-time
           (org-clock-out nil t)
         (org-clock-cancel)))
     (run-hook-with-args 'org-pomodoro-killed-hook name)))
+
+(defun org-pomodoro--pause-instance (instance)
+  "Pause INSTANCE."
+  (let* ((name (plist-get instance :name))
+         (state (plist-get instance :state))
+         (remaining (org-pomodoro--instance-remaining-seconds instance)))
+    (when (org-pomodoro--instance-running-p instance)
+      ;; Store state before pausing
+      (plist-put instance :paused-state state)
+      (plist-put instance :remaining-seconds remaining)
+      (plist-put instance :state :paused)
+      (org-pomodoro--log "PAUSED '%s' - %s remaining"
+                         name
+                         (org-pomodoro--format-duration remaining))
+      (org-pomodoro-update-mode-line))))
+
+(defun org-pomodoro--resume-instance (instance)
+  "Resume INSTANCE from paused state."
+  (let* ((name (plist-get instance :name))
+         (paused-state (plist-get instance :paused-state))
+         (remaining (plist-get instance :remaining-seconds)))
+    (when (org-pomodoro--instance-paused-p instance)
+      ;; Restore state and recalculate end-time
+      (plist-put instance :state paused-state)
+      (plist-put instance :end-time (time-add (current-time) remaining))
+      (plist-put instance :remaining-seconds nil)
+      (plist-put instance :paused-state nil)
+      (org-pomodoro--log "RESUMED '%s' - %s remaining"
+                         name
+                         (org-pomodoro--format-duration remaining))
+      (org-pomodoro-update-mode-line))))
 
 (defun org-pomodoro--short-break-finished-instance (instance)
   "Handle short break finished for INSTANCE."
@@ -763,7 +874,8 @@ For multi-pomodoro, returns time for the first active instance."
 
 (defun org-pomodoro-kill ()
   "Kill the current timer, reset the phase and update the modeline.
-For multi-pomodoro, prompts to select which instance to kill."
+For multi-pomodoro, prompts to select which instance to kill.
+Progress is logged to the LOGBOOK of the clocked task."
   (interactive)
   (let ((active (org-pomodoro--active-instances)))
     (cond
@@ -776,6 +888,43 @@ For multi-pomodoro, prompts to select which instance to kill."
       (let* ((names (mapcar (lambda (inst) (plist-get inst :name)) active))
              (selected (completing-read "Kill which pomodoro? " names nil t)))
         (org-pomodoro--kill-instance (org-pomodoro--get-instance selected)))))))
+
+;;;###autoload
+(defun org-pomodoro-pause-or-resume ()
+  "Pause or resume a pomodoro timer.
+If only one timer is active, toggles its pause state.
+If multiple timers are active, prompts to select which one."
+  (interactive)
+  (let* ((active (org-pomodoro--active-instances))
+         (running (cl-remove-if #'org-pomodoro--instance-paused-p active))
+         (paused (cl-remove-if-not #'org-pomodoro--instance-paused-p active)))
+    (cond
+     ;; No active pomodoros
+     ((null active)
+      (org-pomodoro--log "No active pomodoros to pause/resume")
+      (message "No active pomodoros."))
+     ;; Only one timer, toggle it
+     ((= (length active) 1)
+      (let ((instance (car active)))
+        (if (org-pomodoro--instance-paused-p instance)
+            (org-pomodoro--resume-instance instance)
+          (org-pomodoro--pause-instance instance))))
+     ;; Multiple timers - prompt for selection
+     (t
+      (let* ((choices (mapcar (lambda (inst)
+                                (let ((name (plist-get inst :name))
+                                      (paused (org-pomodoro--instance-paused-p inst))
+                                      (time (org-pomodoro--instance-format-time inst)))
+                                  (cons (format "%s %s [%s]"
+                                                (if paused "▶ Resume" "⏸ Pause")
+                                                name time)
+                                        inst)))
+                              active))
+             (selected (completing-read "Pause/Resume: " (mapcar #'car choices) nil t))
+             (instance (cdr (assoc selected choices))))
+        (if (org-pomodoro--instance-paused-p instance)
+            (org-pomodoro--resume-instance instance)
+          (org-pomodoro--pause-instance instance))))))
 
 (defun org-pomodoro-reset ()
   "Reset org-pomodoro state (kills all active pomodoros)."
