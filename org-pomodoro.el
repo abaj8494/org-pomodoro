@@ -366,7 +366,7 @@ Does nothing if `org-pomodoro-tts-enabled' is nil."
                                  (format "%s %s && rm %s"
                                          player
                                          (shell-quote-argument temp-file)
-                                         (shell-quote-argument temp-file))))))))))))
+                                         (shell-quote-argument temp-file)))))))))))))
 
 (defun org-pomodoro-tts--on-started (name)
   "TTS hook for pomodoro start. NAME is the pomodoro name."
