@@ -298,7 +298,7 @@ Examples: \"+10%\" for faster, \"-10%\" for slower, \"+0%\" for normal."
 (defvar org-pomodoro--tts-process nil
   "The current TTS process, if any.")
 
-(defun org-pomodoro-tts--strip-org-links (text)
+(defun org-pomodoro--strip-org-links (text)
   "Strip org link markup from TEXT, keeping only the description.
 Converts [[target][description]] to description, and [[target]] to target."
   (let ((result text))
@@ -309,6 +309,9 @@ Converts [[target][description]] to description, and [[target]] to target."
     (while (string-match "\\[\\[\\([^]]*\\)\\]\\]" result)
       (setq result (replace-match (match-string 1 result) t t result)))
     result))
+
+;; Alias for backwards compatibility
+(defalias 'org-pomodoro-tts--strip-org-links 'org-pomodoro--strip-org-links)
 
 (defun org-pomodoro-tts-speak (text)
   "Speak TEXT using edge-tts asynchronously.
@@ -678,7 +681,7 @@ Paused instances are considered active."
   "Set the modeline accordingly to the current state."
   (let ((parts '()))
     (dolist (instance (org-pomodoro--active-instances))
-      (let* ((name (plist-get instance :name))
+      (let* ((name (org-pomodoro--strip-org-links (plist-get instance :name)))
              (state (plist-get instance :state))
              (time-str (org-pomodoro--instance-format-time instance))
              (display-name (if (> (length name) 10)
