@@ -6,6 +6,10 @@ This fork extends the original [org-pomodoro](https://github.com/marcinkoziej/or
 
 ## Fork Changes
 
+### Version 3.2.1
+- TTS backend choice: `say` (instant) or `edge-tts` (high quality)
+- Default backend is now macOS native `say` for zero latency
+
 ### Version 3.2.0
 - Text-to-speech announcements via edge-tts
 - Configurable voice and speech rate
@@ -52,23 +56,28 @@ This fork extends the original [org-pomodoro](https://github.com/marcinkoziej/or
 
 ### Text-to-Speech
 
-Requires [edge-tts](https://github.com/rany2/edge-tts):
-
-```bash
-pip install edge-tts
-```
-
-Enable in your config:
+Enable TTS announcements:
 
 ```elisp
 (setq org-pomodoro-tts-enabled t)
 ```
 
-Configure voice (run `edge-tts --list-voices` for options):
+**Backend options:**
 
-```elisp
-(setq org-pomodoro-tts-voice "en-US-AndrewNeural")  ; warm, confident
-```
+1. **macOS `say` (default)** - Instant, uses system voice:
+   ```elisp
+   (setq org-pomodoro-tts-backend 'say)
+   (setq org-pomodoro-tts-say-voice "Daniel")  ; optional, run `say -v ?` for voices
+   ```
+
+2. **edge-tts** - High quality Microsoft voices (requires network):
+   ```bash
+   pip install edge-tts
+   ```
+   ```elisp
+   (setq org-pomodoro-tts-backend 'edge-tts)
+   (setq org-pomodoro-tts-voice "en-US-AndrewNeural")  ; run `edge-tts --list-voices`
+   ```
 
 ## Configuration
 
@@ -85,8 +94,10 @@ Configure voice (run `edge-tts --list-voices` for options):
 
 ;; TTS
 (setq org-pomodoro-tts-enabled t)
-(setq org-pomodoro-tts-voice "en-US-AndrewNeural")
-(setq org-pomodoro-tts-rate "+0%")
+(setq org-pomodoro-tts-backend 'say)        ; or 'edge-tts
+(setq org-pomodoro-tts-say-voice "Daniel")  ; for 'say backend
+(setq org-pomodoro-tts-voice "en-US-AndrewNeural")  ; for 'edge-tts backend
+(setq org-pomodoro-tts-rate "+0%")          ; for 'edge-tts backend
 
 ;; Behavior
 (setq org-pomodoro-manual-break nil)

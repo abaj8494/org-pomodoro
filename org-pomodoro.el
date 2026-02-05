@@ -4,7 +4,7 @@
 ;; Maintainer: Aayush Bajaj <aayushbajaj7@gmail.com>
 ;; URL: https://github.com/abaj8494/org-pomodoro
 ;; Created: May 10, 2013
-;; Version: 3.2.0
+;; Version: 3.2.1
 ;; Package-Requires: ((alert "0.5.10") (cl-lib "0.5"))
 
 ;; This file is free software; you can redistribute it and/or modify
@@ -267,13 +267,30 @@ Use `org-pomodoro-long-break-sound' to determine what sound that should be."
   :group 'org-pomodoro
   :type 'list)
 
-;;; TEXT-TO-SPEECH ANNOUNCEMENTS (via edge-tts)
+;;; TEXT-TO-SPEECH ANNOUNCEMENTS
 
 (defcustom org-pomodoro-tts-enabled nil
-  "Whether to announce pomodoro events using text-to-speech.
-Requires edge-tts to be installed (pip install edge-tts)."
+  "Whether to announce pomodoro events using text-to-speech."
   :group 'org-pomodoro
   :type 'boolean)
+
+(defcustom org-pomodoro-tts-backend 'say
+  "Backend to use for text-to-speech announcements.
+- `say': macOS native TTS (instant, lower quality)
+- `edge-tts': Microsoft Edge TTS (network latency, high quality)
+
+`say' is recommended for instant feedback during pomodoros."
+  :group 'org-pomodoro
+  :type '(choice (const :tag "macOS say (instant)" say)
+                 (const :tag "edge-tts (high quality)" edge-tts)))
+
+(defcustom org-pomodoro-tts-say-voice nil
+  "Voice to use for macOS say backend.
+Run `say -v ?' to see available voices.
+If nil, uses system default."
+  :group 'org-pomodoro
+  :type '(choice (const :tag "System default" nil)
+                 (string :tag "Voice name")))
 
 (defcustom org-pomodoro-tts-voice "en-US-AndrewNeural"
   "The voice to use for text-to-speech announcements.
@@ -314,32 +331,42 @@ Converts [[target][description]] to description, and [[target]] to target."
 (defalias 'org-pomodoro-tts--strip-org-links 'org-pomodoro--strip-org-links)
 
 (defun org-pomodoro-tts-speak (text)
-  "Speak TEXT using edge-tts asynchronously.
+  "Speak TEXT using the configured TTS backend.
 Does nothing if `org-pomodoro-tts-enabled' is nil."
   (when org-pomodoro-tts-enabled
     ;; Kill any existing speech to avoid overlap
     (when (and org-pomodoro--tts-process
                (process-live-p org-pomodoro--tts-process))
       (kill-process org-pomodoro--tts-process))
-    (let ((temp-file (make-temp-file "org-pomodoro-tts-" nil ".mp3")))
-      (setq org-pomodoro--tts-process
-            (make-process
-             :name "org-pomodoro-tts"
-             :command (list "edge-tts"
-                            "--voice" org-pomodoro-tts-voice
-                            "--rate" org-pomodoro-tts-rate
-                            "--text" text
-                            "--write-media" temp-file)
-             :sentinel (lambda (proc event)
-                         (when (string-match-p "finished" event)
-                           ;; Play the audio file
-                           (let ((player (or org-pomodoro-audio-player "afplay")))
-                             (start-process-shell-command
-                              "org-pomodoro-tts-play" nil
-                              (format "%s %s && rm %s"
-                                      player
-                                      (shell-quote-argument temp-file)
-                                      (shell-quote-argument temp-file)))))))))))
+    (pcase org-pomodoro-tts-backend
+      ('say
+       ;; macOS native TTS - instant
+       (setq org-pomodoro--tts-process
+             (apply #'start-process "org-pomodoro-tts" nil "say"
+                    (if org-pomodoro-tts-say-voice
+                        (list "-v" org-pomodoro-tts-say-voice text)
+                      (list text)))))
+      ('edge-tts
+       ;; Microsoft Edge TTS - higher quality but needs network
+       (let ((temp-file (make-temp-file "org-pomodoro-tts-" nil ".mp3")))
+         (setq org-pomodoro--tts-process
+               (make-process
+                :name "org-pomodoro-tts"
+                :command (list "edge-tts"
+                               "--voice" org-pomodoro-tts-voice
+                               "--rate" org-pomodoro-tts-rate
+                               "--text" text
+                               "--write-media" temp-file)
+                :sentinel (lambda (proc event)
+                            (when (string-match-p "finished" event)
+                              ;; Play the audio file
+                              (let ((player (or org-pomodoro-audio-player "afplay")))
+                                (start-process-shell-command
+                                 "org-pomodoro-tts-play" nil
+                                 (format "%s %s && rm %s"
+                                         player
+                                         (shell-quote-argument temp-file)
+                                         (shell-quote-argument temp-file))))))))))))
 
 (defun org-pomodoro-tts--on-started (name)
   "TTS hook for pomodoro start. NAME is the pomodoro name."
