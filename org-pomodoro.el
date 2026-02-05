@@ -77,6 +77,13 @@
   :group 'org-pomodoro
   :type 'boolean)
 
+(defcustom org-pomodoro-skip-name-prompt nil
+  "If non-nil, skip the name prompt and use the heading directly.
+When starting a pomodoro on an org heading, use the heading text
+as the pomodoro name without prompting for confirmation."
+  :group 'org-pomodoro
+  :type 'boolean)
+
 (defcustom org-pomodoro-play-sounds t
   "Determines whether sounds are played or not."
   :group 'org-pomodoro
@@ -1183,8 +1190,10 @@ With prefix argument:
                                 (org-get-heading t t t t))
                            (substring-no-properties (org-get-heading t t t t))
                          "pomodoro"))
-         (name (read-string (format "Pomodoro name (default: %s): " default-name)
-                            nil nil default-name))
+         (name (if org-pomodoro-skip-name-prompt
+                   default-name
+                 (read-string (format "Pomodoro name (default: %s): " default-name)
+                              nil nil default-name)))
          (existing (org-pomodoro--get-instance name)))
     ;; Check if this name already exists
     (cond
