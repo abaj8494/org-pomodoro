@@ -1,4 +1,4 @@
-;;; org-pomodoro.el --- Pomodoro implementation for org-mode.
+;;; org-pomodoro.el --- Pomodoro implementation for org-mode. -*- lexical-binding: t; -*-
 
 ;; Author: Arthur Leonard Andersen <leoc.git@gmail.com>, Marcin Koziej <marcin at lolownia dot org>
 ;; Maintainer: Aayush Bajaj <aayushbajaj7@gmail.com>
