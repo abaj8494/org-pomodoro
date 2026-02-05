@@ -400,7 +400,7 @@ Does nothing if `org-pomodoro-tts-enabled' is nil."
 (defun org-pomodoro-tts--on-killed (name)
   "TTS hook for pomodoro kill. NAME is the pomodoro name."
   (let ((clean-name (org-pomodoro-tts--strip-org-links name)))
-    (org-pomodoro-tts-speak (format "%s timer stopped." clean-name))))
+    (org-pomodoro-tts-speak (format "%s killed." clean-name))))
 
 (defun org-pomodoro-tts--on-overtime (name)
   "TTS hook for pomodoro overtime. NAME is the pomodoro name."
@@ -949,7 +949,11 @@ Paused instances are considered active."
   "Pause INSTANCE."
   (let* ((name (plist-get instance :name))
          (state (plist-get instance :state))
-         (remaining (org-pomodoro--instance-remaining-seconds instance)))
+         (remaining (org-pomodoro--instance-remaining-seconds instance))
+         (length-seconds (* 60 (plist-get instance :length)))
+         (elapsed (- length-seconds remaining))
+         (elapsed-mins (/ elapsed 60))
+         (remaining-mins (/ remaining 60)))
     (when (org-pomodoro--instance-running-p instance)
       ;; Store state before pausing
       (plist-put instance :paused-state state)
@@ -958,13 +962,22 @@ Paused instances are considered active."
       (org-pomodoro--log "PAUSED '%s' - %s remaining"
                          name
                          (org-pomodoro--format-duration remaining))
-      (org-pomodoro-update-mode-line))))
+      (org-pomodoro-update-mode-line)
+      ;; TTS announcement
+      (let ((clean-name (org-pomodoro--strip-org-links name)))
+        (org-pomodoro-tts-speak
+         (format "%s paused. %d minutes elapsed, %d minutes remaining."
+                 clean-name elapsed-mins remaining-mins))))))
 
 (defun org-pomodoro--resume-instance (instance)
   "Resume INSTANCE from paused state."
   (let* ((name (plist-get instance :name))
          (paused-state (plist-get instance :paused-state))
-         (remaining (plist-get instance :remaining-seconds)))
+         (remaining (plist-get instance :remaining-seconds))
+         (length-seconds (* 60 (plist-get instance :length)))
+         (elapsed (- length-seconds remaining))
+         (elapsed-mins (/ elapsed 60))
+         (remaining-mins (/ remaining 60)))
     (when (org-pomodoro--instance-paused-p instance)
       ;; Restore state and recalculate end-time
       (plist-put instance :state paused-state)
@@ -974,7 +987,12 @@ Paused instances are considered active."
       (org-pomodoro--log "RESUMED '%s' - %s remaining"
                          name
                          (org-pomodoro--format-duration remaining))
-      (org-pomodoro-update-mode-line))))
+      (org-pomodoro-update-mode-line)
+      ;; TTS announcement
+      (let ((clean-name (org-pomodoro--strip-org-links name)))
+        (org-pomodoro-tts-speak
+         (format "%s resumed. %d minutes elapsed, %d minutes remaining."
+                 clean-name elapsed-mins remaining-mins))))))
 
 (defun org-pomodoro--short-break-finished-instance (instance)
   "Handle short break finished for INSTANCE."
