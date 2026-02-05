@@ -275,14 +275,15 @@ Requires edge-tts to be installed (pip install edge-tts)."
   :group 'org-pomodoro
   :type 'boolean)
 
-(defcustom org-pomodoro-tts-voice "en-US-ChristopherNeural"
+(defcustom org-pomodoro-tts-voice "en-US-AndrewNeural"
   "The voice to use for text-to-speech announcements.
 This should be a valid Microsoft Edge TTS voice name.
 
-Authoritative male voices:
-  - en-US-ChristopherNeural (reliable, authority - default)
-  - en-US-EricNeural (rational)
+Male voices:
+  - en-US-AndrewNeural (warm, confident - default)
+  - en-US-ChristopherNeural (reliable, authority)
   - en-US-GuyNeural (passionate)
+  - en-GB-RyanNeural (British)
 
 Run `edge-tts --list-voices` to see all available voices."
   :group 'org-pomodoro
