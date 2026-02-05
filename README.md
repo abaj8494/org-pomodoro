@@ -1,76 +1,98 @@
-[![MELPA Stable](http://stable.melpa.org/packages/org-pomodoro-badge.svg)](http://stable.melpa.org/#/org-pomodoro)
-[![MELPA](http://melpa.org/packages/org-pomodoro-badge.svg)](http://melpa.org/#/org-pomodoro)
+# Org-Pomodoro (abaj8494 fork)
 
-Org-Pomodoro
-============
+Pomodoro technique implementation for Emacs org-mode.
 
-This adds very basic support for
-[Pomodoro technique](http://www.pomodorotechnique.com/)
-in Emacs' org-mode.
+This fork extends the original [org-pomodoro](https://github.com/marcinkoziej/org-pomodoro) with additional features for power users.
 
-With default options:
+## Fork Changes
 
-You can start a pomodoro for the task at point or select one of the
-last tasks that you clocked time for. Each clocked-in pomodoro
-starts a timer of 25 minutes and after each pomodoro a break timer of
-5 minutes is started automatically. Every 4 breaks a long break is
-started with 20 minutes. All values are customizable.
+### Version 3.2.0
+- Text-to-speech announcements via edge-tts
+- Configurable voice and speech rate
+- Announces timer start, completion, breaks, overtime, and kill events
 
-Installation
-============
+### Version 3.1.0
+- Multiple simultaneous named pomodoros
+- Prompt for pomodoro name on start
+- Verbose logging to Messages buffer
+- Prefix argument support for custom durations
+  - `C-u`: prompt for work length
+  - `C-u C-u`: prompt for work and break lengths
 
- Install from MELPA:
+## Installation
 
- * Add MELPA to your EMACS installation:
+### Via straight.el
 
-         (add-to-list 'package-archives
-                      '("melpa" . "https://melpa.org/packages/") t)
+```elisp
+(straight-use-package
+ '(org-pomodoro :type git :host github :repo "abaj8494/org-pomodoro"))
+```
 
- * Install the package via `M-x package-install RET org-pomodoro`
+### Via use-package with straight
 
-Usage
-=====
+```elisp
+(use-package org-pomodoro
+  :straight (:host github :repo "abaj8494/org-pomodoro"))
+```
 
- 1. Move point to a task as you would do with `org-clock-in`.
-    Call `org-pomodoro` the task will be clocked-in.
- 2. When there's time for break, the task will be `org-clock-out`'ed
- 3. If you call `org-pomodoro` during a pomodoro, you'll be asked to reset
-    a pomodoro.
- 4. If you call `org-pomodoro` outside org-mode, you'll be presented
-    with list of recent tasks, as `C-u org-clock-in` would.
+## Usage
 
-Customization
-=============
+1. Move point to an org heading
+2. Call `M-x org-pomodoro`
+3. Enter a name for the pomodoro when prompted
+4. Timer starts and clocks into the task
 
-Most aspects of `org-pomodoro` can be customized. Examples are the
-length of pomodoros and breaks (`org-pomodoro-length`,
-`org-pomodoro-short-break-length`, `org-pomodoro-long-break-length`),
-sounds, modeline display, if breaks should be clocked
-(`org-pomodoro-clock-break`) the behaviour when a pomodoro is reset
-(`org-pomodoro-ask-upon-killing`, `org-pomodoro-keep-killed-time`)
-etc. Have a look at the `org-pomodoro` customization group.
+### Commands
 
-Some workflows benefit from the option to work a few minutes
-“overtime” to finish a task before taking a break (that is, a slightly
-dynamic pomodoro time). The option `org-pomodoro-manual-break` enables
-this workflow, where a break notification is sent at the end of the
-pomodoro time but the break is started first when manually calling
-`org-pomodoro`.
+| Command | Description |
+|---------|-------------|
+| `org-pomodoro` | Start a new pomodoro or manage existing |
+| `org-pomodoro-list` | List active pomodoros, select to kill |
+| `org-pomodoro-status` | Show status of all active pomodoros |
 
-License
-=======
+### Text-to-Speech
 
-This file is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 3, or (at your option)
-any later version.
+Requires [edge-tts](https://github.com/rany2/edge-tts):
 
-This file is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+```bash
+pip install edge-tts
+```
 
-You should have received a copy of the GNU General Public License
-along with GNU Emacs; see the file COPYING.  If not, write to
-the Free Software Foundation, Inc., 59 Temple Place - Suite 330,
-Boston, MA 02111-1307, USA.
+Enable in your config:
+
+```elisp
+(setq org-pomodoro-tts-enabled t)
+```
+
+Configure voice (run `edge-tts --list-voices` for options):
+
+```elisp
+(setq org-pomodoro-tts-voice "en-US-DavisNeural")  ; deep, authoritative
+```
+
+## Configuration
+
+```elisp
+;; Durations (minutes)
+(setq org-pomodoro-length 25)
+(setq org-pomodoro-short-break-length 5)
+(setq org-pomodoro-long-break-length 20)
+(setq org-pomodoro-long-break-frequency 4)
+
+;; Sounds
+(setq org-pomodoro-play-sounds t)
+(setq org-pomodoro-start-sound-p t)
+
+;; TTS
+(setq org-pomodoro-tts-enabled t)
+(setq org-pomodoro-tts-voice "en-US-DavisNeural")
+(setq org-pomodoro-tts-rate "+0%")
+
+;; Behavior
+(setq org-pomodoro-manual-break nil)
+(setq org-pomodoro-ask-upon-killing t)
+```
+
+## License
+
+GNU General Public License v3.0
