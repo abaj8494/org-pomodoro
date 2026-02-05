@@ -323,8 +323,9 @@ Examples: \"+10%\" for faster, \"-10%\" for slower, \"+0%\" for normal."
   "The current TTS process, if any.")
 
 (defun org-pomodoro--strip-org-links (text)
-  "Strip org link markup from TEXT, keeping only the description.
-Converts [[target][description]] to description, and [[target]] to target."
+  "Strip org link markup and time prefixes from TEXT.
+Converts [[target][description]] to description, and [[target]] to target.
+Also strips leading time prefixes like \"10:28AM \" or \"1:05PM \"."
   (let ((result text))
     ;; Replace [[...][description]] with description
     (while (string-match "\\[\\[[^]]*\\]\\[\\([^]]*\\)\\]\\]" result)
@@ -332,6 +333,9 @@ Converts [[target][description]] to description, and [[target]] to target."
     ;; Replace [[target]] with target (links without description)
     (while (string-match "\\[\\[\\([^]]*\\)\\]\\]" result)
       (setq result (replace-match (match-string 1 result) t t result)))
+    ;; Strip leading time prefix (e.g. "10:28AM " or "1:05PM ")
+    (if (string-match "\\`[0-9]\\{1,2\\}:[0-9]\\{2\\}[AP]M " result)
+        (setq result (substring result (match-end 0))))
     result))
 
 ;; Alias for backwards compatibility
