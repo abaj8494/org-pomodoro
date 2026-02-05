@@ -275,14 +275,14 @@ Requires edge-tts to be installed (pip install edge-tts)."
   :group 'org-pomodoro
   :type 'boolean)
 
-(defcustom org-pomodoro-tts-voice "en-US-DavisNeural"
+(defcustom org-pomodoro-tts-voice "en-US-ChristopherNeural"
   "The voice to use for text-to-speech announcements.
 This should be a valid Microsoft Edge TTS voice name.
 
-Deep, authoritative male voices:
-  - en-US-DavisNeural (deep, calm, authoritative - default)
-  - en-US-GuyNeural (professional)
-  - en-GB-RyanNeural (British, authoritative)
+Authoritative male voices:
+  - en-US-ChristopherNeural (reliable, authority - default)
+  - en-US-EricNeural (rational)
+  - en-US-GuyNeural (passionate)
 
 Run `edge-tts --list-voices` to see all available voices."
   :group 'org-pomodoro
@@ -296,6 +296,18 @@ Examples: \"+10%\" for faster, \"-10%\" for slower, \"+0%\" for normal."
 
 (defvar org-pomodoro--tts-process nil
   "The current TTS process, if any.")
+
+(defun org-pomodoro-tts--strip-org-links (text)
+  "Strip org link markup from TEXT, keeping only the description.
+Converts [[target][description]] to description, and [[target]] to target."
+  (let ((result text))
+    ;; Replace [[...][description]] with description
+    (while (string-match "\\[\\[[^]]*\\]\\[\\([^]]*\\)\\]\\]" result)
+      (setq result (replace-match (match-string 1 result) t t result)))
+    ;; Replace [[target]] with target (links without description)
+    (while (string-match "\\[\\[\\([^]]*\\)\\]\\]" result)
+      (setq result (replace-match (match-string 1 result) t t result)))
+    result))
 
 (defun org-pomodoro-tts-speak (text)
   "Speak TEXT using edge-tts asynchronously.
@@ -328,8 +340,9 @@ Does nothing if `org-pomodoro-tts-enabled' is nil."
 (defun org-pomodoro-tts--on-started (name)
   "TTS hook for pomodoro start. NAME is the pomodoro name."
   (let* ((instance (org-pomodoro--get-instance name))
-         (length (if instance (plist-get instance :length) org-pomodoro-length)))
-    (org-pomodoro-tts-speak (format "%s timer started. %d minutes on." name length))))
+         (length (if instance (plist-get instance :length) org-pomodoro-length))
+         (clean-name (org-pomodoro-tts--strip-org-links name)))
+    (org-pomodoro-tts-speak (format "%s timer started. %d minutes on." clean-name length))))
 
 (defun org-pomodoro-tts--on-finished (name)
   "TTS hook for pomodoro finish. NAME is the pomodoro name."
@@ -339,24 +352,29 @@ Does nothing if `org-pomodoro-tts-enabled' is nil."
                            (if (eq state :long-break)
                                (plist-get instance :long-break-length)
                              (plist-get instance :short-break-length))
-                         org-pomodoro-short-break-length)))
-    (org-pomodoro-tts-speak (format "Break for %s. %d minutes off." name break-length))))
+                         org-pomodoro-short-break-length))
+         (clean-name (org-pomodoro-tts--strip-org-links name)))
+    (org-pomodoro-tts-speak (format "Break for %s. %d minutes off." clean-name break-length))))
 
 (defun org-pomodoro-tts--on-short-break-finished (name)
   "TTS hook for short break finish. NAME is the pomodoro name."
-  (org-pomodoro-tts-speak (format "Break over for %s." name)))
+  (let ((clean-name (org-pomodoro-tts--strip-org-links name)))
+    (org-pomodoro-tts-speak (format "Break over for %s." clean-name))))
 
 (defun org-pomodoro-tts--on-long-break-finished (name)
   "TTS hook for long break finish. NAME is the pomodoro name."
-  (org-pomodoro-tts-speak (format "Long break over for %s." name)))
+  (let ((clean-name (org-pomodoro-tts--strip-org-links name)))
+    (org-pomodoro-tts-speak (format "Long break over for %s." clean-name))))
 
 (defun org-pomodoro-tts--on-killed (name)
   "TTS hook for pomodoro kill. NAME is the pomodoro name."
-  (org-pomodoro-tts-speak (format "%s timer stopped." name)))
+  (let ((clean-name (org-pomodoro-tts--strip-org-links name)))
+    (org-pomodoro-tts-speak (format "%s timer stopped." clean-name))))
 
 (defun org-pomodoro-tts--on-overtime (name)
   "TTS hook for pomodoro overtime. NAME is the pomodoro name."
-  (org-pomodoro-tts-speak (format "Time is up for %s." name)))
+  (let ((clean-name (org-pomodoro-tts--strip-org-links name)))
+    (org-pomodoro-tts-speak (format "Time is up for %s." clean-name))))
 
 ;; Register TTS hooks
 (add-hook 'org-pomodoro-started-hook #'org-pomodoro-tts--on-started)

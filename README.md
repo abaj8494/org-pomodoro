@@ -67,7 +67,7 @@ Enable in your config:
 Configure voice (run `edge-tts --list-voices` for options):
 
 ```elisp
-(setq org-pomodoro-tts-voice "en-US-DavisNeural")  ; deep, authoritative
+(setq org-pomodoro-tts-voice "en-US-ChristopherNeural")  ; authoritative
 ```
 
 ## Configuration
@@ -85,7 +85,7 @@ Configure voice (run `edge-tts --list-voices` for options):
 
 ;; TTS
 (setq org-pomodoro-tts-enabled t)
-(setq org-pomodoro-tts-voice "en-US-DavisNeural")
+(setq org-pomodoro-tts-voice "en-US-ChristopherNeural")
 (setq org-pomodoro-tts-rate "+0%")
 
 ;; Behavior
