@@ -4,7 +4,7 @@
 ;; Maintainer: Aayush Bajaj <aayushbajaj7@gmail.com>
 ;; URL: https://github.com/abaj8494/org-pomodoro
 ;; Created: May 10, 2013
-;; Version: 3.1.0
+;; Version: 3.2.0
 ;; Package-Requires: ((alert "0.5.10") (cl-lib "0.5"))
 
 ;; This file is free software; you can redistribute it and/or modify
@@ -40,6 +40,14 @@
 ;; - C-u prefix argument support for custom work/break lengths
 ;;   - C-u: prompt for work length
 ;;   - C-u C-u: prompt for work and break lengths
+;;
+;; Version 3.2.0 changes:
+;; - Text-to-speech announcements via edge-tts
+;;   - Announces start, finish, breaks, overtime, and kill events
+;;   - Uses pomodoro name in speech for context
+;;   - Configurable voice (default: en-US-GuyNeural)
+;;   - Enable with (setq org-pomodoro-tts-enabled t)
+;;   - Requires: pip install edge-tts
 
 ;;; Code:
 (eval-when-compile
@@ -258,6 +266,145 @@ Use `org-pomodoro-long-break-sound' to determine what sound that should be."
   "The frequency at which to playback the ticking sound."
   :group 'org-pomodoro
   :type 'list)
+
+;;; TEXT-TO-SPEECH ANNOUNCEMENTS (via edge-tts)
+
+(defcustom org-pomodoro-tts-enabled nil
+  "Whether to announce pomodoro events using text-to-speech.
+Requires edge-tts to be installed (pip install edge-tts)."
+  :group 'org-pomodoro
+  :type 'boolean)
+
+(defcustom org-pomodoro-tts-voice "en-US-GuyNeural"
+  "The voice to use for text-to-speech announcements.
+This should be a valid Microsoft Edge TTS voice name.
+
+Professional voices similar to Interactive Brokers TWS:
+  - en-US-GuyNeural (male, professional - default)
+  - en-US-ChristopherNeural (male, news anchor)
+  - en-US-JennyNeural (female, professional)
+  - en-GB-RyanNeural (male, British professional)
+
+Run `edge-tts --list-voices` to see all available voices."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-rate "+0%"
+  "Speech rate adjustment for TTS announcements.
+Examples: \"+10%\" for faster, \"-10%\" for slower, \"+0%\" for normal."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-start-message "Starting pomodoro: %s"
+  "Message announced when a pomodoro starts.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-finished-message "Pomodoro complete: %s. Time for a break."
+  "Message announced when a pomodoro finishes.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-short-break-finished-message "Short break over. Ready to resume %s?"
+  "Message announced when a short break finishes.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-long-break-finished-message "Long break over. Ready for another session?"
+  "Message announced when a long break finishes.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-killed-message "Pomodoro stopped: %s"
+  "Message announced when a pomodoro is killed.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-overtime-message "Time is up for %s. Finish up when ready."
+  "Message announced when a pomodoro enters overtime.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-paused-message "Pausing %s"
+  "Message announced when a pomodoro is paused.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defcustom org-pomodoro-tts-resumed-message "Resuming %s"
+  "Message announced when a pomodoro is resumed.
+%s is replaced with the pomodoro name."
+  :group 'org-pomodoro
+  :type 'string)
+
+(defvar org-pomodoro--tts-process nil
+  "The current TTS process, if any.")
+
+(defun org-pomodoro-tts-speak (text)
+  "Speak TEXT using edge-tts asynchronously.
+Does nothing if `org-pomodoro-tts-enabled' is nil."
+  (when org-pomodoro-tts-enabled
+    ;; Kill any existing speech to avoid overlap
+    (when (and org-pomodoro--tts-process
+               (process-live-p org-pomodoro--tts-process))
+      (kill-process org-pomodoro--tts-process))
+    (let ((temp-file (make-temp-file "org-pomodoro-tts-" nil ".mp3")))
+      (setq org-pomodoro--tts-process
+            (make-process
+             :name "org-pomodoro-tts"
+             :command (list "edge-tts"
+                            "--voice" org-pomodoro-tts-voice
+                            "--rate" org-pomodoro-tts-rate
+                            "--text" text
+                            "--write-media" temp-file)
+             :sentinel (lambda (proc event)
+                         (when (string-match-p "finished" event)
+                           ;; Play the audio file
+                           (let ((player (or org-pomodoro-audio-player "afplay")))
+                             (start-process-shell-command
+                              "org-pomodoro-tts-play" nil
+                              (format "%s %s && rm %s"
+                                      player
+                                      (shell-quote-argument temp-file)
+                                      (shell-quote-argument temp-file)))))))))))
+
+(defun org-pomodoro-tts--on-started (name)
+  "TTS hook for pomodoro start. NAME is the pomodoro name."
+  (org-pomodoro-tts-speak (format org-pomodoro-tts-start-message name)))
+
+(defun org-pomodoro-tts--on-finished (name)
+  "TTS hook for pomodoro finish. NAME is the pomodoro name."
+  (org-pomodoro-tts-speak (format org-pomodoro-tts-finished-message name)))
+
+(defun org-pomodoro-tts--on-short-break-finished (name)
+  "TTS hook for short break finish. NAME is the pomodoro name."
+  (org-pomodoro-tts-speak (format org-pomodoro-tts-short-break-finished-message name)))
+
+(defun org-pomodoro-tts--on-long-break-finished (name)
+  "TTS hook for long break finish. NAME is the pomodoro name."
+  (org-pomodoro-tts-speak (format org-pomodoro-tts-long-break-finished-message name)))
+
+(defun org-pomodoro-tts--on-killed (name)
+  "TTS hook for pomodoro kill. NAME is the pomodoro name."
+  (org-pomodoro-tts-speak (format org-pomodoro-tts-killed-message name)))
+
+(defun org-pomodoro-tts--on-overtime (name)
+  "TTS hook for pomodoro overtime. NAME is the pomodoro name."
+  (org-pomodoro-tts-speak (format org-pomodoro-tts-overtime-message name)))
+
+;; Register TTS hooks
+(add-hook 'org-pomodoro-started-hook #'org-pomodoro-tts--on-started)
+(add-hook 'org-pomodoro-finished-hook #'org-pomodoro-tts--on-finished)
+(add-hook 'org-pomodoro-short-break-finished-hook #'org-pomodoro-tts--on-short-break-finished)
+(add-hook 'org-pomodoro-long-break-finished-hook #'org-pomodoro-tts--on-long-break-finished)
+(add-hook 'org-pomodoro-killed-hook #'org-pomodoro-tts--on-killed)
+(add-hook 'org-pomodoro-overtime-hook #'org-pomodoro-tts--on-overtime)
 
 ;;; OVERTIME VALUES
 (defcustom org-pomodoro-overtime-format "+%s"
